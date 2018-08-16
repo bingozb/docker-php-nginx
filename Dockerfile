@@ -1,5 +1,72 @@
-FROM php:5.6-fpm-alpine
+FROM php:7.1-fpm-alpine
 LABEL maintainer="bingo <bingov5@icloud.com>"
+
+###################################### PHP-FPM ######################################
+
+# timezone
+ENV TIMEZONE Asia/Shanghai
+RUN apk add --no-cache tzdata \
+    && ln -snf /usr/share/zoneinfo/$TIMEZONE /etc/localtime \
+    && echo $TIMEZONE > /etc/timezone
+
+COPY ./php-fpm/php.ini /usr/local/etc/php/php.ini
+
+# mbstring opcache pdo mysql
+RUN docker-php-ext-install mbstring opcache pdo pdo_mysql mysqli 
+
+# gd zip
+RUN apk add --no-cache freetype libpng libjpeg-turbo freetype-dev libpng-dev libjpeg-turbo-dev \
+    && NPROC=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || 1) \
+    && docker-php-ext-configure gd \
+        --with-gd \
+        --with-freetype-dir \
+        --with-png-dir \
+        --with-jpeg-dir \
+        --with-zlib-dir \
+    && docker-php-ext-install -j${NPROC} gd zip \
+    && apk del freetype-dev libpng-dev libjpeg-turbo-dev
+
+# redis
+ENV PHPREDIS_VERSION 4.0.0RC1
+RUN apk add --no-cache curl \
+    && curl -L -o /tmp/redis.tar.gz https://github.com/phpredis/phpredis/archive/$PHPREDIS_VERSION.tar.gz \
+    && tar xfz /tmp/redis.tar.gz \
+    && rm -r /tmp/redis.tar.gz \
+    && mkdir -p /usr/src/php/ext \
+    && mv phpredis-$PHPREDIS_VERSION /usr/src/php/ext/redis \
+    && docker-php-ext-install redis \
+    && rm -rf /usr/src/php \
+    && apk del curl
+
+# mongo
+RUN apk update && apk add autoconf openssl-dev g++ make && \
+	pecl channel-update pecl.php.net && \
+    pecl install mongodb && \
+    docker-php-ext-enable mongodb && \
+    apk del --purge autoconf openssl-dev g++ make
+
+# odbc
+RUN apk update \
+    && apk add --no-cache --virtual .php-build-dependencies \
+        autoconf \
+        g++ \
+        make \
+        unixodbc-dev \
+    && apk add --virtual .php-runtime-dependencies \
+        freetds \
+        unixodbc \
+    && docker-php-source extract \
+    && docker-php-ext-configure pdo_odbc --with-pdo-odbc=unixODBC,/usr \
+    && docker-php-ext-install \
+        pdo_odbc \
+    && docker-php-source delete \
+    && apk del .php-build-dependencies \
+    && rm -rf /var/cache/apk/* /var/tmp/* /tmp/*
+COPY odbc/*.ini /etc/
+
+COPY ./php-fpm/docker-php-entrypoint /usr/local/bin/
+
+RUN chmod +x /usr/local/bin/docker-php-entrypoint
 
 ###################################### NGINX ###################################### 
 
@@ -116,54 +183,7 @@ EXPOSE 80
 
 STOPSIGNAL SIGTERM
 
-###################################### PHP-FPM ######################################
 
-# timezone
-ENV TIMEZONE Asia/Shanghai
-RUN apk add --no-cache tzdata \
-    && ln -snf /usr/share/zoneinfo/$TIMEZONE /etc/localtime \
-    && echo $TIMEZONE > /etc/timezone
-
-COPY ./php-fpm/php.ini /usr/local/etc/php/php.ini
-
-# mbstring opcache pdo mysql
-RUN docker-php-ext-install mbstring opcache pdo pdo_mysql mysql mysqli
-
-# gd zip
-RUN apk add --no-cache freetype libpng libjpeg-turbo freetype-dev libpng-dev libjpeg-turbo-dev \
-    && NPROC=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || 1) \
-    && docker-php-ext-configure gd \
-        --with-gd \
-        --with-freetype-dir \
-        --with-png-dir \
-        --with-jpeg-dir \
-        --with-zlib-dir \
-    && docker-php-ext-install -j${NPROC} gd zip \
-    && apk del freetype-dev libpng-dev libjpeg-turbo-dev
-
-# redis
-ENV PHPREDIS_VERSION 4.0.0RC1
-RUN apk add --no-cache curl \
-    && curl -L -o /tmp/redis.tar.gz https://github.com/phpredis/phpredis/archive/$PHPREDIS_VERSION.tar.gz \
-    && tar xfz /tmp/redis.tar.gz \
-    && rm -r /tmp/redis.tar.gz \
-    && mkdir -p /usr/src/php/ext \
-    && mv phpredis-$PHPREDIS_VERSION /usr/src/php/ext/redis \
-    && docker-php-ext-install redis \
-    && rm -rf /usr/src/php \
-    && apk del curl
-
-# mongo
-RUN apk update && apk add autoconf openssl-dev g++ make && \
-    pecl install mongo && \
-    docker-php-ext-enable mongo && \
-    pecl install mongodb && \
-    docker-php-ext-enable mongodb && \
-    apk del --purge autoconf openssl-dev g++ make
-
-COPY ./php-fpm/docker-php-entrypoint /usr/local/bin/
-
-RUN chmod +x /usr/local/bin/docker-php-entrypoint
 
 WORKDIR /app
 
