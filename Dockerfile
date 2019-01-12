@@ -131,7 +131,7 @@ RUN docker-php-ext-install mbstring opcache pdo pdo_mysql mysql mysqli mcrypt
 
 # gd zip
 RUN apk add --no-cache libmcrypt-dev freetype libpng libjpeg-turbo freetype-dev libpng-dev libjpeg-turbo-dev \
-    && docker-php-ext-install mcrypt
+    && docker-php-ext-install mcrypt \
     && NPROC=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || 1) \
     && docker-php-ext-configure gd \
         --with-gd \
